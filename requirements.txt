@@ -18,3 +18,4 @@ langdetect
 chromadb
 easyocr
 langchain-google-genai
+gunicorn
