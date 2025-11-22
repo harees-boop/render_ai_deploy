@@ -19,3 +19,4 @@ chromadb
 easyocr
 langchain-google-genai
 gunicorn
+flask
