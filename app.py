@@ -17,7 +17,7 @@ app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = '/tmp/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Create folders if not exist
@@ -349,14 +349,39 @@ def convert_text_to_ssml(text: str) -> str:
     return f"<speak>{escaped_text}</speak>"
 
 
-def get_access_token(json_keyfile: str) -> str:
-    credentials = service_account.Credentials.from_service_account_file(
-        json_keyfile,
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
+# def get_access_token(json_keyfile: str) -> str:
+#     credentials = service_account.Credentials.from_service_account_file(
+#         json_keyfile,
+#         scopes=["https://www.googleapis.com/auth/cloud-platform"]
+#     )
+#     credentials.refresh(Request())
+#     return credentials.token
+# --- UPDATED AUTHENTICATION LOGIC FOR RENDER ---
+
+def get_access_token() -> str:
+    # Option A: Read from Environment Variable (Best for Render)
+    creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON")
+    
+    if creds_json_str:
+        creds_info = json.loads(creds_json_str)
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    else:
+        # Option B: Fallback to local file (for testing on your machine)
+        # Rename your json file to 'service_account.json' and put it in root folder
+        if os.path.exists("service_account.json"):
+            credentials = service_account.Credentials.from_service_account_file(
+                "service_account.json",
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        else:
+             print("Error: No Google Credentials found in Env or local file.")
+             return ""
+
     credentials.refresh(Request())
     return credentials.token
-
 
 def synthesize_tts_gemini(text: str, output_filename: str, access_token: str, language_code: str):
     ssml_text = convert_text_to_ssml(text)
@@ -391,8 +416,10 @@ def synthesize_tts_gemini(text: str, output_filename: str, access_token: str, la
             print("No audio generated in TTS response.")
 
 
-client = genai.Client(api_key="AIzaSyCSBrdx4PPMj5FYAZzg2IJUxs2i9C54WMw")  # Replace with your Gemini API key
-json_key_path = "C:\\Users\\user\\Documents\\gemini\\tts-dev-01-50d93cabea7b.json"  # Replace with your Google Cloud key path
+# client = genai.Client(api_key="AIzaSyCSBrdx4PPMj5FYAZzg2IJUxs2i9C54WMw")  # Replace with your Gemini API key
+api_key = os.environ.get("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
+json_key_path = "C:\\Hike Tech\\APP\\aitutor\\render_ai_deploy\\tts-dev-01-50d93cabea7b.json"  # Replace with your Google Cloud key path
 
 
 def generate_language_options(selected_code):
