@@ -20,4 +20,3 @@ easyocr
 langchain-google-genai
 gunicorn
 flask
-json
