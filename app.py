@@ -30,6 +30,16 @@ os.makedirs(AUDIO_STORAGE_FOLDER, exist_ok=True)
 
 # --- CONSTANTS ---
 lang_to_tts_voice = {
+    # SHORT CODES (What Flutter sends)
+    'en': 'en-US-Wavenet-F',
+    'fr': 'fr-FR-Wavenet-C',
+    'de': 'de-DE-Wavenet-D',
+    'es': 'es-ES-Wavenet-A',
+    'it': 'it-IT-Wavenet-B',
+    'nl': 'nl-NL-Wavenet-A',
+    'pt': 'pt-BR-Wavenet-D',
+    'pl': 'pl-PL-Wavenet-A',
+    'tr': 'tr-TR-Wavenet-A',
     'af': 'af-ZA-Standard-A', 'ar-EG': 'ar-EG-Wavenet-B', 'bn-BD': 'bn-BD-Standard-A',
     'nl': 'nl-NL-Wavenet-A', 'en-US': 'en-US-Wavenet-F', 'fr-FR': 'fr-FR-Wavenet-C',
     'de-DE': 'de-DE-Wavenet-D', 'hi-IN': 'hi-IN-Wavenet-B', 'id': 'id-ID-Wavenet-A',
