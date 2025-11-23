@@ -565,8 +565,9 @@ def run_chatbot(syllabus, subject, grade, language_code, question, image_paths, 
                     os.remove(tts_output_file)
                 except Exception:
                     pass
-
-            access_token = get_access_token(json_key_path)
+            # ✅ NEW / CORRECT
+            access_token = get_access_token()
+            # access_token = get_access_token(json_key_path)
             synthesize_tts_gemini(answer_plain, tts_output_file, access_token, language_code)
 
             return answer_plain
