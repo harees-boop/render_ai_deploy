@@ -12,6 +12,7 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
 import unicodedata 
+import json
 
 app = Flask(__name__)
 app.secret_key = "your_secret_key_here"
