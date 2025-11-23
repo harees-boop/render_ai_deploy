@@ -18,16 +18,15 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "default_secret_key")
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# --- RENDER FILE SYSTEM SETUP ---
-# Use /tmp because standard folders are read-only or ephemeral on Render free tier
+# --- FILE SYSTEM SETUP ---
+# We use /tmp because Render free tier behaves like a read-only system in some areas
 UPLOAD_FOLDER = '/tmp/uploads' 
-STATIC_FOLDER = '/tmp/static'
+AUDIO_STORAGE_FOLDER = '/tmp/audio_files'  # Renamed for clarity
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Ensure these folders exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(STATIC_FOLDER, exist_ok=True)
+os.makedirs(AUDIO_STORAGE_FOLDER, exist_ok=True)
 
 # --- CONSTANTS ---
 lang_to_tts_voice = {
@@ -58,7 +57,6 @@ SENSITIVE_KEYWORDS = [
 DEBUG = False
 
 # --- HELPER FUNCTIONS ---
-
 def clean_text(text: str) -> str:
     text = unicodedata.normalize('NFKC', text)
     lines = text.splitlines()
@@ -239,36 +237,23 @@ def get_access_token() -> str:
 def synthesize_tts_gemini(text: str, output_filename: str, access_token: str, language_code: str):
     ssml_text = convert_text_to_ssml(text)
     voice_name = lang_to_tts_voice.get(language_code, "en-US-Wavenet-F")
-
+    
     url = "https://texttospeech.googleapis.com/v1/text:synthesize"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     payload = {
         "input": {"ssml": ssml_text},
-        "voice": {
-            "languageCode": language_code,
-            "name": voice_name,
-            "ssmlGender": "FEMALE"
-        },
-        "audioConfig": {
-            "audioEncoding": "MP3"
-        }
+        "voice": {"languageCode": language_code, "name": voice_name, "ssmlGender": "FEMALE"},
+        "audioConfig": {"audioEncoding": "MP3"}
     }
-    
     try:
         response = requests.post(url, headers=headers, json=payload)
         response.raise_for_status()
         audio_content = response.json().get("audioContent")
         if audio_content:
-            # Write to the specific output filename provided
             with open(output_filename, "wb") as out_file:
                 out_file.write(base64.b64decode(audio_content))
-        else:
-            print("No audio generated.")
     except Exception as e:
-        print(f"TTS API Error: {e}")
+        print(f"TTS Error: {e}")
 
 # Initialize Gemini
 api_key = os.environ.get("GEMINI_API_KEY")
@@ -283,14 +268,16 @@ def generate_language_options(selected_code):
             options_html += f'<option value="{code}" {selected}>{name}</option>'
     return options_html
 
-# --- ROUTES ---
+# --- ROUTING: FIX 404 ---
+@app.route('/audio_output/<path:filename>') # Renamed from 'static' to avoid collision
+def serve_audio(filename):
+    return send_from_directory(AUDIO_STORAGE_FOLDER, filename)
 
-# 1. Serve Static Files (Fixes 404 on Audio)
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory(STATIC_FOLDER, filename)
+@app.route("/", methods=["GET", "POST"])
+def home():
+    return "Hike AI Backend is Active"
 
-# 2. Main Chatbot Logic
+# --- MAIN CHAT LOGIC ---
 def run_chatbot(syllabus, subject, grade, language_code, question, image_paths, pdf_paths, audio_path, user_name):
     combined_text = question + " " + " ".join(image_paths) + " " + " ".join(pdf_paths)
     if contains_sensitive_content(combined_text):
@@ -302,7 +289,6 @@ def run_chatbot(syllabus, subject, grade, language_code, question, image_paths, 
 
     contents = []
     
-    # Process PDFs
     for pdf_path in pdf_paths:
         pdf_text = extract_text_from_pdf(pdf_path)
         if pdf_text:
@@ -312,68 +298,50 @@ def run_chatbot(syllabus, subject, grade, language_code, question, image_paths, 
         pdf_images = extract_images_from_pdf(pdf_path)
         contents.extend(images_to_parts(pdf_images))
 
-    # Process Audio (Gemini Multimodal)
     if audio_path:
         try:
             with open(audio_path, "rb") as f:
                 audio_bytes = f.read()
-                
-                # Determine mime type safely
-                mime_type = "audio/mpeg" # fallback
+                mime_type = "audio/mpeg"
                 if audio_path.endswith(".wav"): mime_type = "audio/wav"
                 elif audio_path.endswith(".aac"): mime_type = "audio/aac"
-                elif audio_path.endswith(".mp3"): mime_type = "audio/mp3"
-                
                 audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
                 contents.append(audio_part)
                 contents.append("Please listen to this audio question and answer it.")
         except Exception as e:
-            print(f"Audio processing error: {e}")
+            print(f"Audio read error: {e}")
 
-    # Process Text Question
     if question:
         contents.append(system_prompt + f"\n\nQuestion: {question}\nAnswer:")
 
-    # Process Images
     for image_path in image_paths:
         try:
             part = types.Part.from_file(image_path)
             contents.append(part)
         except: pass
 
-    # Fallback if empty
     if not any(isinstance(c, str) for c in contents) and not audio_path:
         contents.insert(0, system_prompt + "\n\nPlease analyze the following image(s).")
 
     try:
-        # Call Gemini
         response = client.models.generate_content(model="gemini-2.5-flash", contents=contents)
         answer_raw = response.text.strip()
         answer_clean = clean_text(answer_raw)
         answer_formatted = format_markdown_output(answer_clean)
         answer_plain = clean_markdown_to_plain_text(answer_formatted)
 
-        # TTS Generation
-        # Save to STATIC_FOLDER so it can be served via URL
-        tts_filename = "chatbot_response.mp3"
-        tts_output_path = os.path.join(STATIC_FOLDER, tts_filename)
-        
-        if os.path.exists(tts_output_path):
-            try: os.remove(tts_output_path)
-            except: pass
+        # --- TTS SAVING (FIXED PATH) ---
+        tts_filename = f"reply_{int(time.time())}.mp3" # Unique name
+        tts_output_path = os.path.join(AUDIO_STORAGE_FOLDER, tts_filename)
         
         access_token = get_access_token()
         if access_token:
             synthesize_tts_gemini(answer_plain, tts_output_path, access_token, language_code)
+            return answer_plain, tts_filename # Return filename too!
         
-        return answer_plain
+        return answer_plain, None
     except Exception as e:
-        return f"Error occurred: {str(e)}"
-
-@app.route("/", methods=["GET", "POST"])
-def home():
-    # Simplified HTML Interface for debugging
-    return "Hike AI Backend is Running"
+        return f"Error occurred: {str(e)}", None
 
 @app.route("/api/chat", methods=["POST"])
 def api_chat():
@@ -389,7 +357,6 @@ def api_chat():
     pdf_paths = []
     audio_path = None
 
-    # Save Images
     if 'images' in request.files:
         for img in request.files.getlist('images'):
             if img.filename:
@@ -397,7 +364,6 @@ def api_chat():
                 img.save(path)
                 image_paths.append(path)
     
-    # Save PDFs
     if 'pdfs' in request.files:
         for pdf in request.files.getlist('pdfs'):
             if pdf.filename:
@@ -405,7 +371,6 @@ def api_chat():
                 pdf.save(path)
                 pdf_paths.append(path)
 
-    # Save Audio
     if 'audio' in request.files:
         audio_file = request.files['audio']
         if audio_file.filename:
@@ -413,13 +378,13 @@ def api_chat():
             audio_file.save(path)
             audio_path = path
 
-    answer = run_chatbot(syllabus, subject, grade, language_code, question, image_paths, pdf_paths, audio_path, user_name)
+    # Get Answer AND Filename
+    answer, filename = run_chatbot(syllabus, subject, grade, language_code, question, image_paths, pdf_paths, audio_path, user_name)
 
     audio_url = None
-    if answer:
-        ts = int(time.time() * 1000)
-        # Returns absolute URL: https://.../static/chatbot_response.mp3
-        audio_url = f"{request.host_url}static/chatbot_response.mp3?v={ts}"
+    if filename:
+        # Updated URL to match the new route /audio_output/
+        audio_url = f"{request.host_url}audio_output/{filename}"
 
     return jsonify({
         "answer": answer,
