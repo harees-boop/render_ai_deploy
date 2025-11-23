@@ -416,7 +416,6 @@ def synthesize_tts_gemini(text: str, output_filename: str, access_token: str, la
             print("No audio generated in TTS response.")
 
 
-# client = genai.Client(api_key="AIzaSyCSBrdx4PPMj5FYAZzg2IJUxs2i9C54WMw")  # Replace with your Gemini API key
 api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 json_key_path = "C:\\Hike Tech\\APP\\aitutor\\render_ai_deploy\\tts-dev-01-50d93cabea7b.json"  # Replace with your Google Cloud key path
